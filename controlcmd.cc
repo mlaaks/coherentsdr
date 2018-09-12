@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 
 //command-line parsing, getopt:
-#include "getopt/getopt.h"
+//#include "getopt/getopt.h"
 #include "controlmsg.h"
 
 
