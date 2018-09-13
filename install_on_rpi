@@ -1,4 +1,6 @@
-Flash armbian system onto microSD, remember to resize the root partition, otherwise, it's too small (3.1G). I had to delete the partition on the RPI, recreate a larger partition starting from exact same position, then resize it on desktop debian system (fsck is absolutely required, and won't run on mounted system, and then you cannot umount /) via first running fsck -f on the partition, and then resize2fs. Now it's 15 Gb.
+Initial tests on RPI 3 Model B and NanoPi A64 were unsuccessful. The program can be compiled, but synchronization fails due to insufficient CPU-power. Lowering sample rate to 250 kHz had shown limited success. This needs optimization, and there are obvious tweaks that can be done. The computation of cross-correlation has already been disabled for channels which have acquired synchronization, but this feature is untested on the PI. 
+
+For the NanoPi A64: Flash armbian system onto microSD, remember to resize the root partition, otherwise, it's too small (3.1G). I had to delete the partition on the RPI, recreate a larger partition starting from exact same position, then resize it on desktop debian system (fsck is absolutely required, and won't run on mounted system, and then you cannot umount /) via first running fsck -f on the partition, and then run resize2fs. Now it's 15 Gb.
 
 *installing the prequisites for coherentsdr
 
@@ -41,6 +43,4 @@ First, cmake is needed for compiling most of the required libraries. This is eas
 4. Install ZMQ libraries
 		apt-get install libzmq3-dev
 
-5. Compiling coherentsdr.cc
-		gcc coherentsdr.cc -lzmq -lpthread -lfftw3f -lvolk -lstdc++ -lrtlsdr -lm -o coherentsdr
 		
