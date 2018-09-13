@@ -1,0 +1,46 @@
+Flash armbian system onto microSD, remember to resize the root partition, otherwise, it's too small (3.1G). I had to delete the partition on the RPI, recreate a larger partition starting from exact same position, then resize it on desktop debian system (fsck is absolutely required, and won't run on mounted system, and then you cannot umount /) via first running fsck -f on the partition, and then resize2fs. Now it's 15 Gb.
+
+*installing the prequisites for coherentsdr
+
+First, cmake is needed for compiling most of the required libraries. This is easy on Armbian with apt-get
+		apt-get install cmake
+
+1. Experimental rtl-sdr fork
+	Get libusb developer libraries (needs root or sudo):
+		apt-get install libusb-1.0-0-dev
+	Download the source:
+		git clone git://github.com/tejeez/rtl-sdr
+		cd rtl-sdr
+		mkdir build
+		cmake .. -DDETACH_KERNEL_DRIVER=ON -DINSTALL_UDEV_RULES=ON
+		make -j 4
+		make install
+		
+		ldconfig
+		sudo udevadm control -R
+		sudo udevadm trigger
+
+2. Compile Vector Optimized Library of Kernels (VOLK) from sources
+	install Mako templates for python
+		apt-get install python-mako
+	install Boost-C++ libraries. note, the available version may vary, for me 1.58 worked. to check, run:  sudo apt-cache search libboost
+		apt-get install libboost1.58-all
+
+	Download the source:
+		git clone git://github.com/gnuradio/volk
+		cd volk
+		mkdir build
+		cd build
+		cmake ..
+		make -j 4
+		make install
+
+3. Install Fastest Fourier Transform in The West (FFTW), easy
+		apt-get install fftw3-dev
+
+4. Install ZMQ libraries
+		apt-get install libzmq3-dev
+
+5. Compiling coherentsdr.cc
+		gcc coherentsdr.cc -lzmq -lpthread -lfftw3f -lvolk -lstdc++ -lrtlsdr -lm -o coherentsdr
+		
