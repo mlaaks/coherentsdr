@@ -17,7 +17,7 @@
 #include <ctime>
 #include <ratio>
 
-const uint32_t default_buffersize = (4*8192);
+const uint32_t default_buffersize = (4*8192); //was 4*8192
 
 const float sync_threshold=0.005; //when dk goes below this value, synch_achieved flag will be set.
 
@@ -211,6 +211,10 @@ public:
  		else
  			ret = rtlsdr_set_tuner_gain(dev, 500);	//was 500
  		*/
+ 		//testing remove everything after this line
+ 		//uint32_t freq, tfreq;
+ 		//rtlsdr_get_xtal_freq(dev, &freq, &tfreq);
+ 		//fprintf(stderr,"dev->xtal = %d , tuner: %d \n",freq,tfreq);
 	 }
 
 	 int close(){
@@ -290,11 +294,11 @@ public:
 
 	 float estimatelag()
 	 {
-	 	float alpha=0.05f; //kind of experimental leaky integrator param. to smooth values for determining synch quality.
+	 	float alpha=0.25f; //kind of experimental leaky integrator param. to smooth values for determining synch quality.
 	 	
+	 	channeldsp->convtofloat((const int8_t *)getbptr());
 	 	if ((!sync_achieved)||(refchannel)||(fftcnt++ % FFT_EVERY_N)==0){
 		 	//channeldsp->convtosigned((const int8_t *) getbptr());
-		 	channeldsp->convtofloat((const int8_t *)getbptr());
 		 	channeldsp->executefft();
 		 	channeldsp->crosscorrelatefft(csdrdevice::refsdr->channeldsp->getfftptr());
 		 	dk=float(channeldsp->findfracpeak())-nsamples;
@@ -307,6 +311,10 @@ public:
 
 	 void refsubtract(){
 	 	channeldsp->refsubtract(csdrdevice::refsdr->channeldsp->getsptr());
+	 	channeldsp->convto8bit();
+	 }
+
+	 void convto8bit(){
 	 	channeldsp->convto8bit();
 	 }
 

@@ -117,7 +117,10 @@ int convto8bit()
 {
 	//ideally, here we would do for each sample index s8bit=round(127.0f*s32bitfloat-0.5f)
 	//however, there is no add/subtract scalar to/from vector volk kernel: we're losing one value out of 256: -128.
-	volk_32f_s32f_convert_8i(samples8bit,(float *)samples,127.0f,block_size);
+	if (refchannel)
+		volk_32f_s32f_convert_8i(samples8bit,(float *)samples + block_size,127.0f,block_size);
+	else
+		volk_32f_s32f_convert_8i(samples8bit,(float *)samples,127.0f,block_size);
 }
 
 int executefft()

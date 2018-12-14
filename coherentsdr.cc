@@ -26,6 +26,7 @@
 #include <complex>
 
 #include "coherentsdr.h"
+#include "configfile.h"
 
 
 uint32_t global_fcenter = 48000000;
@@ -151,6 +152,7 @@ void csdrdevice::control_thread(csdrdevice *d)
 	//std::chrono::high_resolution_clock::time_point t1,t2;
 	float g=0.0f;
 	float t_err=0.0f;
+	uint32_t wait_time = round(float(d->block_size)/float(d->samplerate)*1e6);
 	while (!exit_all){
 		if (global_fcenter!=d->fcenter){
 			d->sync_achieved=false;
@@ -186,12 +188,66 @@ void csdrdevice::control_thread(csdrdevice *d)
 						d->sync_achieved=true;
 				}
 			}
-			usleep(32800);
+			//usleep(32800);
+			usleep(wait_time);
 		}
 	}
 	fprintf(stderr,"requesting cancel_async() from callback #%d\n",d->devnum);
 	rtlsdr_cancel_async((rtlsdr_dev_t *) d->getdevptr());
 }
+
+//let's try adjusting the rtl_xtal directly rtlsdr_set_xtal_freq(rtlsdr_dev_t *dev, uint32_t rtl_freq, uint32_t tuner_freq)
+/*void csdrdevice::control_thread(csdrdevice *d)
+{
+	//std::chrono::high_resolution_clock::time_point t1,t2;
+	float g=0.0f;
+	float t_err=0.0f;
+	uint32_t wait_time = round(float(d->block_size)/float(d->samplerate)*1e6);
+	while (!exit_all){
+		if (global_fcenter!=d->fcenter){
+			d->sync_achieved=false;
+			d->setfcenter(global_fcenter);
+
+		} else{
+			t_err=fabs(d->dk);
+		
+			if (!d->sync_achieved){
+				if ((t_err>sync_threshold) && (!d->isrefchannel())){
+					float fcorr=0.0f;
+					if (t_err>500)
+						fcorr=0.001*sgn(d->dk);
+					else if (t_err>50)	
+						fcorr=0.0005*sgn(d->dk);
+					else if (t_err>10)
+						fcorr=0.0001*sgn(d->dk);
+					else if (t_err>1)
+						fcorr=0.00001*sgn(d->dk);
+					else
+						fcorr=0.0000001*sgn(d->dk);
+
+					//rtlsdr_set_sample_freq_correction_f(d->dev,fcorr);
+					rtlsdr_set_xtal_freq(d->dev,28800000+1000*fcorr,28800000);
+				//	t2=t1;
+		 		//	t1=std::chrono::high_resolution_clock::now();
+		 		//	std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(t2-t1);
+		 		//	fprintf(stderr,"Dev #%d delta %2.6f\n",d->devnum,time_span);
+				}
+				else
+				{
+					//rtlsdr_set_sample_freq_correction_f(d->dev,0.0f);
+					rtlsdr_set_xtal_freq(d->dev,28800000,28800000);
+					if (d->getreadcnt()>10)
+						d->sync_achieved=true;
+				}
+			}
+			//usleep(32800);
+			usleep(wait_time);
+		}
+	}
+	fprintf(stderr,"requesting cancel_async() from callback #%d\n",d->devnum);
+	rtlsdr_cancel_async((rtlsdr_dev_t *) d->getdevptr());
+}*/
+
 
 
 int csdrdevice::startasynchread(int ndevices,Barrier *startbar)
@@ -216,7 +272,8 @@ void usage(void)
 		"\t[-g tuner gain: signal [dB] (default 60)]\n"
 		"\t[-r tuner gain: reference [dB] (default 50)]\n"
 		"\t[-I reference dongle serial ID (default 'MREF')]\n"
-		"\t[-A set automatic gaincontrol for all devices]\n");
+		"\t[-A set automatic gaincontrol for all devices]\n"
+		"\t[-C 'config file', read receiver config from a file]\n");
 	exit(1);
 }
 
@@ -230,8 +287,10 @@ int main(int argc, char **argv){
 	uint32_t refgain  = 500;
 	uint32_t siggain  = 600;
 	uint32_t agcmode  = 0;
+	bool 	 use_cfg  = false;
 
-	std::string refname="MREF";
+	std::string refname="M REF";
+	std::string config_fname = "";
 
 	if (ndevices<1){
 		fprintf(stderr,"No rtl-sdr devices found! exiting.\n");
@@ -256,7 +315,7 @@ int main(int argc, char **argv){
 	bool	synchmode= false;
 
 
-	while ((opt = getopt(argc, argv, "As:f:h:n:g:r:I:")) != -1) {
+	while ((opt = getopt(argc, argv, "As:f:h:n:g:r:I:C:")) != -1) {
 		switch (opt) {
 		case 'A':
 				agcmode=1;
@@ -284,6 +343,10 @@ int main(int argc, char **argv){
 		case 'I':
 				refname=std::string(optarg);
 			break;
+		case 'C':
+				config_fname = std::string(optarg);
+				use_cfg = true;
+			break;
 		default:
 			usage();
 			break;
@@ -292,48 +355,80 @@ int main(int argc, char **argv){
 
 	fprintf(stderr,"Using samplerate: %d. Initial tuning frequency:%d\n",fs,global_fcenter);
 
-	startbarrier = new Barrier(ndevices);
+	
 	csdrdevice *sdr = new csdrdevice[ndevices];
 	int block_size=default_buffersize;
 
 	
 	{ //scope for packetize & controlmsg lifetime
+		std::vector<sdrdefs> v;
+
+		if (use_cfg){
+			v = cconfigfile::readconfig(config_fname);
+			ndevices = v.size();
+		}
+		startbarrier = new Barrier(ndevices);
+		
 		cpacketize packetize(ndevices,block_size, "tcp://*:5555");
 		ccontrolmsg controlmsg(ndevices,"tcp://*:5556");
 		csdrdevice::packetize = &packetize;
 
-	
-		fprintf(stderr,"opening reference device %s...\n",refname.data());
-		int refID=rtlsdr_get_index_by_serial((const char *)refname.data());
-		if (refID<0) {
-				fprintf(stderr,"device with serial %s not found, using device #0 as reference (warning, this may yield incorrect results!)\n",refname.data());
-				refID=0;
-		}
-
-		sdr[refID].setrefchannel();
-		csdrdevice::setrefsdrptr(sdr);
-		sdr[refID].setdevnum(0,global_fcenter,fs);
-		if(sdr[refID].open(0,global_fcenter,fs,refgain,agcmode)<0){
-			fprintf(stderr,"Failed to open device #%d\n",refID);
-			}
-		else{
-			sdr[refID].startasynchread(ndevices,startbarrier);
-		}
-	
 		
-		for (uint32_t n=1;n<ndevices;n++){
-				if (n!=refID){
-					sdr[n].setdevnum(n,global_fcenter,fs);
-					if(sdr[n].open(n,global_fcenter,fs,siggain,agcmode)<0){
-						fprintf(stderr,"Failed to open device #%d\n",n);
-					}
-					else{
-						sdr[n].startasynchread(ndevices,startbarrier);
-					}
+	
+		if (use_cfg) {
+			fprintf(stderr,"%s defined %d devices \n",config_fname.data(),ndevices);
+			for (auto n : v){
+				fprintf(stderr,"device #%d, serial %s\n",n.devindex,n.serial.data());
+				int id = rtlsdr_get_index_by_serial((const char *) n.serial.data());
+				if (n.devindex == 0)
+				{
+					sdr[n.devindex].setrefchannel();
+					csdrdevice::setrefsdrptr(sdr);
+				}
+				sdr[n.devindex].setdevnum(id,global_fcenter,fs);
+				
+				if(sdr[n.devindex].open(id,global_fcenter,fs,siggain,agcmode)<0){
+					fprintf(stderr,"Failed to open device #%d\n",id);
+				}
+				else{
+					sdr[n.devindex].startasynchread(ndevices,startbarrier);
+				}
+
 			}
+			
 		}
+		else{
+			fprintf(stderr,"opening reference device %s...\n",refname.data());
+			int refID=rtlsdr_get_index_by_serial((const char *)refname.data());
+			if (refID<0) {
+					fprintf(stderr,"device with serial %s not found, using device #0 as reference (warning, this may yield incorrect results!)\n",refname.data());
+					refID=0;
+			}
+
+			sdr[refID].setrefchannel();
+			csdrdevice::setrefsdrptr(sdr);
+			sdr[refID].setdevnum(0,global_fcenter,fs);
+			if(sdr[refID].open(0,global_fcenter,fs,refgain,agcmode)<0){
+				fprintf(stderr,"Failed to open device #%d\n",refID);
+				}
+			else{
+				sdr[refID].startasynchread(ndevices,startbarrier);
+			}
+
+			for (uint32_t n=1;n<ndevices;n++){
+					if (n!=refID){
+						sdr[n].setdevnum(n,global_fcenter,fs);
+						if(sdr[n].open(n,global_fcenter,fs,siggain,agcmode)<0){
+							fprintf(stderr,"Failed to open device #%d\n",n);
+						}
+						else{
+							sdr[n].startasynchread(ndevices,startbarrier);
+						}
+				}
+			}
 			//std::thread dspthrd(csdrdevice::dspthreadsingle,sdr,ndevices);
-			std::thread controlmsgthrd(controlmsg_thread, &controlmsg);
+		}
+		std::thread controlmsgthrd(controlmsg_thread, &controlmsg);
 
 
 		int np=0;
@@ -348,7 +443,8 @@ int main(int argc, char **argv){
 			}
 				for (int n=0;n<ndevices;n++){
 					sdr[n].estimatelag();
-					sdr[n].refsubtract();
+					//sdr[n].refsubtract();
+					sdr[n].convto8bit();
 					packetize.write(n,sdr[n].getreadcnt(),(int8_t *) sdr[n].getoutbptr());	
 	
 					controlmsg.setlag(n,sdr[n].getlag());
