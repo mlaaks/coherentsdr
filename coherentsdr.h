@@ -111,6 +111,7 @@ class csdrdevice{
 	uint32_t						readcnt;
 public:
 	bool							sync_achieved;
+	int 							phase_corr_valid;
 	std::atomic<bool>				newdata;
 	static std::atomic<int>			fftprocessed;
 	static cpacketize				*packetize;
@@ -149,6 +150,7 @@ public:
 		refchannel 		= false;
 		newdata			= false;
 		sync_achieved 	= false;
+		phase_corr_valid= 4;
 		asyncbufn 		= 4;
 		
 		g_estavgN 		= 10;
@@ -187,6 +189,8 @@ public:
 
 	 int setfcenter(uint32_t f){
 	 	fcenter=f;
+
+	 	//int ret = rtlsdr_set_dithering(dev, 0); 
 	 	return rtlsdr_set_center_freq(dev,fcenter);
 	 }
 
@@ -196,14 +200,17 @@ public:
 
 	 	int ret=rtlsdr_open(&dev,devnum);
 	 	ret = rtlsdr_set_sample_rate(dev, samplerate);
+
+	 	ret = rtlsdr_set_dithering(dev, 0); //THIS MUST PRECEDE THE TUNING FREQ CALL, OTHERWISE FAIL!
 	 	ret = rtlsdr_set_center_freq(dev, fcenter);
 
 	 	ret = rtlsdr_set_agc_mode(dev, agcmode);
 		//ret = rtlsdr_set_if_freq(dev, uint32_t(36000000));
-		ret = rtlsdr_set_dithering(dev, 0);
+		
 
  		ret = rtlsdr_set_tuner_gain_mode(dev, 1);
  		ret = rtlsdr_set_tuner_gain(dev,tunergain);
+ 		ret = rtlsdr_set_sample_freq_correction_f(dev,0.0f);
  		/*if (!refchannel){
  			//ret=rtlsdr_set_tuner_if_gain(dev, 1, 100);
  			ret = rtlsdr_set_tuner_gain(dev, 600);	//was 600
@@ -311,7 +318,16 @@ public:
 
 	 void refsubtract(){
 	 	channeldsp->refsubtract(csdrdevice::refsdr->channeldsp->getsptr());
-	 	channeldsp->convto8bit();
+	 	//channeldsp->convto8bit();
+	 }
+
+	 void phasecorrect(){
+	 	if ((!sync_achieved) || (phase_corr_valid-- > 0)) 	//phase_corr_valid counts to zero, perhaps do averaging of the corr factor here some day...
+	 	{
+	 		channeldsp->est_phasecorrect(csdrdevice::refsdr->channeldsp->getsptr());
+	 	}
+
+	 	channeldsp->phasecorrect();
 	 }
 
 	 void convto8bit(){

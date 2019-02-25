@@ -155,7 +155,8 @@ void csdrdevice::control_thread(csdrdevice *d)
 	uint32_t wait_time = round(float(d->block_size)/float(d->samplerate)*1e6);
 	while (!exit_all){
 		if (global_fcenter!=d->fcenter){
-			d->sync_achieved=false;
+			//d->sync_achieved=false;
+			d->phase_corr_valid=4;
 			d->setfcenter(global_fcenter);
 
 		} else{
@@ -273,7 +274,8 @@ void usage(void)
 		"\t[-r tuner gain: reference [dB] (default 50)]\n"
 		"\t[-I reference dongle serial ID (default 'MREF')]\n"
 		"\t[-A set automatic gaincontrol for all devices]\n"
-		"\t[-C 'config file', read receiver config from a file]\n");
+		"\t[-C 'config file', read receiver config from a file]\n"
+		"\t[-R outputmode raw: no packet header.]\n");
 	exit(1);
 }
 
@@ -288,6 +290,7 @@ int main(int argc, char **argv){
 	uint32_t siggain  = 600;
 	uint32_t agcmode  = 0;
 	bool 	 use_cfg  = false;
+	bool	 no_header= false;
 
 	std::string refname="M REF";
 	std::string config_fname = "";
@@ -315,7 +318,7 @@ int main(int argc, char **argv){
 	bool	synchmode= false;
 
 
-	while ((opt = getopt(argc, argv, "As:f:h:n:g:r:I:C:")) != -1) {
+	while ((opt = getopt(argc, argv, "As:f:h:n:g:r:I:RC:")) != -1) {
 		switch (opt) {
 		case 'A':
 				agcmode=1;
@@ -343,6 +346,9 @@ int main(int argc, char **argv){
 		case 'I':
 				refname=std::string(optarg);
 			break;
+		case 'R':
+				no_header = true;
+			break;
 		case 'C':
 				config_fname = std::string(optarg);
 				use_cfg = true;
@@ -369,7 +375,7 @@ int main(int argc, char **argv){
 		}
 		startbarrier = new Barrier(ndevices);
 		
-		cpacketize packetize(ndevices,block_size, "tcp://*:5555");
+		cpacketize packetize(ndevices,block_size, "tcp://*:5555", no_header);
 		ccontrolmsg controlmsg(ndevices,"tcp://*:5556");
 		csdrdevice::packetize = &packetize;
 
@@ -444,6 +450,7 @@ int main(int argc, char **argv){
 				for (int n=0;n<ndevices;n++){
 					sdr[n].estimatelag();
 					//sdr[n].refsubtract();
+					sdr[n].phasecorrect();
 					sdr[n].convto8bit();
 					packetize.write(n,sdr[n].getreadcnt(),(int8_t *) sdr[n].getoutbptr());	
 	

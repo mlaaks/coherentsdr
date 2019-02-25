@@ -18,6 +18,7 @@ class cpacketize{
 	uint32_t 			globalseqn;
 	uint32_t 			nchannels;
 	uint32_t 			blocksize;
+	bool 				noheader;
 	size_t	 			packetlength;
 	zmq::context_t 		context;
 	zmq::socket_t  		socket;
@@ -26,13 +27,18 @@ class cpacketize{
 
 	int8_t *packetbuf0, *packetbuf1;
 public:
-	cpacketize(uint32_t N,uint32_t L, std::string address) : context(1), socket(context,ZMQ_PUB) {
+	cpacketize(uint32_t N,uint32_t L, std::string address, bool no_header) : context(1), socket(context,ZMQ_PUB) {
 		globalseqn	= 0;
 		nchannels	= N;
 		blocksize	= L;
+		noheader 	= no_header;
 		socket.bind(address);
 
-		packetlength = (16 + 4*nchannels) + 2*nchannels*blocksize;
+		if (noheader)
+			packetlength = 2*nchannels*blocksize;
+		else
+			packetlength = (16 + 4*nchannels) + 2*nchannels*blocksize;
+
 		packetbuf0	= new int8_t[packetlength];
 		packetbuf1	= new int8_t[packetlength];
 	}
@@ -43,13 +49,15 @@ public:
 	}
 
 	int send(){
-		//fill static header. block readcounts filled by calls to write:
-		hdr0 *hdr 		= (hdr0 *) packetbuf0;
-		hdr->globalseqn	= globalseqn++;
-		hdr->N 			= nchannels;
-		hdr->L 			= blocksize;
-		hdr->unused 	= 0;
-
+		if (!noheader){
+			//fill static header. block readcounts filled by calls to write:
+			hdr0 *hdr 		= (hdr0 *) packetbuf0;
+			hdr->globalseqn	= globalseqn++;
+			hdr->N 			= nchannels;
+			hdr->L 			= blocksize;
+			hdr->unused 	= 0;
+		}
+		
 		std::lock_guard<std::mutex> lock(bmutex);
 		int8_t *tmp=packetbuf0;
 		packetbuf0=packetbuf1;
@@ -62,11 +70,18 @@ public:
 	int write(uint32_t channeln,uint32_t readcnt,int8_t *rp){
 
 		std::lock_guard<std::mutex> lock(bmutex);
-		//fill dynamic size part of header, write readcounts
-		*(packetbuf0 + sizeof(hdr0)+channeln)=readcnt;
+		uint32_t loc;
+
+		if (!noheader){
+			//fill dynamic size part of header, write readcounts
+			*(packetbuf0 + sizeof(hdr0)+channeln)=readcnt;
+			loc = (sizeof(hdr0)+nchannels*sizeof(uint32_t)) + channeln*blocksize;
+		}
+		else{
+			loc = channeln*blocksize;
+		}
 
 		//copy data
-		uint32_t loc = (sizeof(hdr0)+nchannels*sizeof(uint32_t)) + channeln*blocksize;
 		memcpy((int8_t *) (packetbuf0+loc),rp,blocksize);
 		written++;
 	}
