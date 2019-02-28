@@ -1,0 +1,25 @@
+This folder contains the matlab ZMQ interface. Files:
+
+	CSDRZMQ.m : the matlab system object class that acts as a wrapper for the C++ MEX implementation
+	zmqsdr.cc : ZMQ client implementation.
+
+Command to build the client: mex zmqsdr.cc -lzmq
+
+Move the build product (i.e. zmqsdr.mexa64) and CSDRZMQ.m to matlab path.
+
+Usage in matlab:
+
+	%instantiate object
+
+	sdr=CZMQSDR('IPAddress','192.168.100.1','Port','5555','ControlPort','5556');
+
+	%receiver loop:
+
+	for n=1:100
+		Y=sdr();
+	end
+
+	%send a command to retune the receiver to 865MHz:
+
+	sdr.CenterFrequency = 865e6; % the message is actually sent during the next call to sdr().
+	sdr();
