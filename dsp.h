@@ -15,7 +15,10 @@ class cdsp{
 	fftwf_complex 	*fftout;
 	fftwf_complex   *ifftout;
 	lv_32fc_t		*conv;
+
+	lv_32fc_t		*tmp;
 	float			*magsqr;
+	float 			*realpart; //addition!
 	float			*mref;
 	uint16_t		*maxc;
 
@@ -24,6 +27,10 @@ class cdsp{
 	int				nsamples;
 
 	float			lag;
+
+	std::complex<float> pcorr;
+	std::complex<float> pcorrprev;
+
 
 public:
 	int8_t			*samples8bit;
@@ -44,9 +51,11 @@ cdsp(int bsize,bool isrefchan){
 	samples8bit	= (int8_t *) volk_malloc(sizeof(int8_t)*block_size,alignment);
 	samples 	= (lv_32fc_t *) volk_malloc(sizeof(lv_32fc_t)*block_size,alignment);
 	samplesout 	= (lv_32fc_t *) volk_malloc(sizeof(lv_32fc_t)*block_size,alignment);
+	tmp 	    = (lv_32fc_t *) volk_malloc(sizeof(lv_32fc_t)*block_size,alignment); //addition.
 
 	conv 		= (lv_32fc_t *) volk_malloc(sizeof(lv_32fc_t)*block_size,alignment);
 	magsqr 		= (float *) volk_malloc(sizeof(float)*block_size,alignment);
+	realpart	= (float *) volk_malloc(sizeof(float)*block_size,alignment); //addition.
 	maxc 		= (uint16_t *) volk_malloc(sizeof(uint16_t)*block_size,alignment);
 	mref 		= (float *) volk_malloc(sizeof(float)*block_size,alignment);
 
@@ -61,12 +70,17 @@ cdsp(int bsize,bool isrefchan){
 	ifftplan = fftwf_plan_dft_1d(block_size,(fftwf_complex *) (conv), ifftout,FFTW_BACKWARD,0);
 	fftwf_execute(fftplan);
 	fftwf_execute(ifftplan);
+
+	pcorr = std::complex<float>(1.0, 0.0); 
+	pcorrprev = std::complex<float>(1.0,0.0);
 }
 ~cdsp(){
 	volk_free(samples);
 	volk_free(samplesout);
 	volk_free(conv);
+	volk_free(tmp); //addition.
 	volk_free(magsqr);
+	volk_free(realpart); //addition.
 	volk_free(maxc);
 	volk_free(samples8bit);
 	volk_free(mref);
@@ -117,10 +131,16 @@ int convto8bit()
 {
 	//ideally, here we would do for each sample index s8bit=round(127.0f*s32bitfloat-0.5f)
 	//however, there is no add/subtract scalar to/from vector volk kernel: we're losing one value out of 256: -128.
-	if (refchannel)
+	/*if (refchannel)
 		volk_32f_s32f_convert_8i(samples8bit,(float *)samples + block_size,127.0f,block_size);
 	else
 		volk_32f_s32f_convert_8i(samples8bit,(float *)samples,127.0f,block_size);
+	*/
+	
+	if (refchannel)
+		volk_32f_s32f_convert_8i(samples8bit,(float *)samples + block_size,127.0f,block_size);
+	else
+		volk_32f_s32f_convert_8i(samples8bit,(float *)samplesout,127.0f,block_size);
 }
 
 int executefft()
@@ -139,6 +159,17 @@ const lv_32fc_t* getsptr(){
 int crosscorrelatefft(const fftwf_complex *reffft){
 	volk_32fc_x2_multiply_conjugate_32fc(conv,(const lv_32fc_t *) fftout,(const lv_32fc_t *) reffft,block_size);
 	fftwf_execute_dft(ifftplan,(fftwf_complex *) conv,ifftout);
+}
+
+
+void est_phasecorrect(const lv_32fc_t *ref){
+	std::complex<float> correlation=0.0f;
+	//std::complex<float> correction =0.0f;
+	volk_32fc_x2_conjugate_dot_prod_32fc((lv_32fc_t *) &correlation,samples,ref,nsamples);
+	pcorr  = std::conj(correlation) * (1.0f /std::abs(correlation));
+}
+void phasecorrect(){
+	volk_32fc_s32fc_multiply_32fc(samplesout,samples,pcorr,nsamples);
 }
 
 void refsubtract(const lv_32fc_t *ref){
@@ -178,17 +209,20 @@ uint16_t findpeak(){
 }
 
 
+
 // this version of peakfinder returns the index of the peak as float, where the fractional sample-index is 
 // calculated from first derivative of Lagrange polynomial (k=3).
+
 float findfracpeak(){
 	uint32_t n;
 	float D=0.0f;
 	float a=0.0f;
 	float b=0.0f;
 
+
 	volk_32fc_magnitude_squared_32f(magsqr,(const lv_32fc_t *) ifftout,block_size);
 	volk_32f_index_max_32u(&n,magsqr,block_size);
-
+	
 	//check if we're at the edge (samples n-1, n+1 needed), if not return only int.part
 	if ((n>1) && (n<block_size-1)){
 	a=-magsqr[n-1]-2*magsqr[n]+magsqr[n+1];
@@ -203,6 +237,40 @@ float findfracpeak(){
 	}
 	else return n;
 }
+/*
+// this version of peakfinder returns the index of the peak as float, where the fractional sample-index is 
+// calculated from first derivative of Lagrange polynomial (k=3).
+float findfracpeak(){
+	uint32_t n;
+	std::complex<float>  D=0.0f;
+	std::complex<float>  a=0.0f;
+	std::complex<float>  b=0.0f;
+	std::complex<float> s1,s2,s3;
+
+	std::complex<float> com_two(2.0f);
+	std::complex<float> com_half(0.5f);
+
+	volk_32fc_magnitude_squared_32f(magsqr,(const lv_32fc_t *) ifftout,block_size);
+	volk_32f_index_max_32u(&n,magsqr,block_size);
+
+	
+	//check if we're at the edge (samples n-1, n+1 needed), if not return only int.part
+	if ((n>1) && (n<block_size-1)){
+
+	s1 = (std::complex<float>) *(ifftout +n -1)
+
+	a=-s1-com_two*s2+s3;
+	b=-com_half*s1+com_half*s3;
+
+	//handle possible divide by zero by setting the fractional to zero:
+	if (a!=0.0f)
+		D=-b/a;
+	else
+		D=0.0f;
+	return n +D.real();
+	}
+	else return n;
+}*/
 
 float gainestimate(){
 	 	std::complex<float> dotprod=0;

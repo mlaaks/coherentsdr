@@ -7,6 +7,7 @@
 const uint32_t CONTROLMSG_MAGIC=(('C'<<24) & ('T'<<16) & ('R'<<8) & 'L');
 const uint32_t CONTROLMSG_SETFCENTER=0x01;
 const uint32_t CONTROLMSG_QUERYLAGS =0x02;
+const uint32_t CONTROLMSG_QUERYINFO =0x03;
 
 class ccontrolmsg{
 	zmq::context_t 		context;
@@ -15,10 +16,16 @@ class ccontrolmsg{
 
 	float				*lags;
 	uint32_t			nchannels;
+	uint32_t 			fcenter;
+	uint32_t  			blocksize;
+	uint32_t			sample_rate;
 
 public:
-	ccontrolmsg(uint32_t N,std::string address) : context(1), socket(context,ZMQ_ROUTER) {
+	ccontrolmsg(uint32_t N, uint32_t L, uint32_t f, uint32_t samplerate, std::string address) : context(1), socket(context,ZMQ_ROUTER) {
 		nchannels = N;
+		blocksize = L;
+		sample_rate=samplerate;
+		fcenter   = f;
 		lags 	  = new float[nchannels];
 		socket.bind(address);
 	}
@@ -27,10 +34,12 @@ public:
 		delete [] lags;
 	}
 
-	int setlag(uint32_t n, float dk)
+	int setinfo(uint32_t n, float dk, uint32_t g_fcenter)
 	{
 		if ((n>=0) & (n<nchannels))
 			lags[n]=dk;
+
+		fcenter = g_fcenter;
 	}
 
 	uint32_t listen(){
@@ -53,6 +62,18 @@ public:
 					{
 						zmq::message_t reply(nchannels*sizeof(float));
 						std::memcpy(message.data(),lags,nchannels*sizeof(float));
+					}
+					break;
+					case CONTROLMSG_QUERYINFO:
+					{
+						uint32_t info[4];
+						info[0] = nchannels;
+						info[1] = blocksize;
+						info[2] = sample_rate;
+						info[3] = fcenter;
+						zmq::message_t reply(sizeof(info));
+						std::memcpy(message.data(),info,sizeof(info));
+
 					}
 					break;
 					default:

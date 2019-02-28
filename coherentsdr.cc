@@ -376,7 +376,7 @@ int main(int argc, char **argv){
 		startbarrier = new Barrier(ndevices);
 		
 		cpacketize packetize(ndevices,block_size, "tcp://*:5555", no_header);
-		ccontrolmsg controlmsg(ndevices,"tcp://*:5556");
+		ccontrolmsg controlmsg(ndevices, block_size, global_fcenter, fs, "tcp://*:5556");
 		csdrdevice::packetize = &packetize;
 
 		
@@ -454,7 +454,7 @@ int main(int argc, char **argv){
 					sdr[n].convto8bit();
 					packetize.write(n,sdr[n].getreadcnt(),(int8_t *) sdr[n].getoutbptr());	
 	
-					controlmsg.setlag(n,sdr[n].getlag());
+					controlmsg.setinfo(n,sdr[n].getlag(),global_fcenter);
 					sdr[n].newdata=false;
 				}
 				packetize.send();
