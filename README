@@ -1,0 +1,40 @@
+#coherentsdr - end all your RTL-SDR synchronization woes - bask eternally in the blissfull glory of phase coherence
+
+I'M CURRENTLY REWRITING THE SOFTWARE FROM SCRATCH AS I NOW HAVE MORE TIME TO WORK ON IT, 50% DONE.
+
+On the hardware side, you'll need all your connected RTL-SDR devices running of a single common clock. Then, you'd be better of
+having a distributed noise source, with one reference sdr-dongle recording only the noise signal. Otherwise, you cannot use
+this software for it's intended use. 
+
+On the software side, following libraries are required before successfull build:
+	
+	:zmq: - the zero message queue
+		sudo apt-get install libzmq3-dev
+	
+	:fftw3f: - fastest fourier transform in the west
+		sudo apt-get install fftw3-dev
+	
+	:volk: - vector optimized library of kernels
+		sudo apt-get install volk
+	
+	:Experimental rtl-sdr fork: - this needs to be built from source:
+	Get libusb developer libraries (needs root or sudo):
+		sudo apt-get install libusb-1.0-0-dev
+	Download the experimental driver source:
+		git clone git://github.com/tejeez/rtl-sdr
+		cd rtl-sdr
+		mkdir build
+		cmake .. -DDETACH_KERNEL_DRIVER=ON -DINSTALL_UDEV_RULES=ON
+		make -j 4
+		sudo make install
+		
+		sudo ldconfig
+		sudo udevadm control -R
+		sudo udevadm trigger
+
+Once the above prequisites are met, building the executable follows the normal cmake procedure, i.e:
+	mkdir build
+	cd build
+	cmake ..
+	build -j4
+
