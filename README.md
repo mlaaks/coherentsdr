@@ -1,4 +1,4 @@
-#coherentsdr - end all your RTL-SDR synchronization woes - bask eternally in the blissfull glory of phase coherence (except, when it's not working)
+OBSOLETE, new project: mlaaks/coherent-rtlsdr
 
 On the hardware side, you'll need all your connected RTL-SDR devices running of a single common clock. Then, you'd be better off with
 having a distributed noise source, with one reference sdr-dongle recording only the noise signal. Otherwise, you cannot use
